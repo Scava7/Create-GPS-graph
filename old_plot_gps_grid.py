@@ -15,6 +15,7 @@ import sys
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -76,19 +77,31 @@ def parse_value(raw: str) -> Any:
             pass
     return s
 
-def parse_recipe(path: str) -> Dict[str, Any]:
-    data: Dict[str, Any] = {}
+def parse_recipe_indexed(path: str):
+    """
+    Ritorna:
+      data: dict chiave -> valore già parsato
+      lines: lista di righe originali del file
+      key_to_line: dict chiave -> indice riga in 'lines'
+    """
+    import re
+    data = {}
+    key_to_line = {}
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("//") or line.startswith("#"):
-                continue
-            m = re.match(r"^([A-Za-z0-9_.\[\]]+)\s*:=\s*(.+?)\s*$", line)
-            if not m:
-                continue
-            key, raw_val = m.group(1), m.group(2)
-            data[key] = parse_value(raw_val)
-    return data
+        lines = f.readlines()
+
+    for idx, raw in enumerate(lines):
+        line = raw.strip()
+        if not line or line.startswith("//") or line.startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z0-9_.\[\]]+)\s*:=\s*(.+?)\s*$", line)
+        if not m:
+            continue
+        key, raw_val = m.group(1), m.group(2)
+        data[key] = parse_value(raw_val)
+        key_to_line[key] = idx
+    return data, lines, key_to_line
+
 
 # ------------------------ grid_data extraction ------------------------
 
@@ -162,41 +175,53 @@ def validate_included_centers(cells: Dict[Tuple[int, int], Dict[str, Any]]):
 
 # ----------------------------- plotting --------------------------------
 
-def auto_pick_file() -> Path:
-    script_dir = Path(__file__).resolve().parent
-    candidate = script_dir / "GPS_Grid.txtrecipe"
-    if candidate.exists():
-        return candidate
-    found = list(script_dir.glob("*.txtrecipe"))
-    if found:
-        return found[0]
+def auto_pick_file(preferred_name: str = "GPS_Grid.txtrecipe") -> Path:
+    here = Path.cwd()
+
+    # 1) preferito esatto
+    cand = here / preferred_name
+    if cand.exists():
+        print(f"[auto_pick_file] Uso: {cand}")
+        return cand
+
+    # 2) prima prova *.txtrecipe, poi anche *.txrtrecipe (typo comune)
+    for pattern in ("*.txtrecipe", "*.txrtrecipe"):
+        found = sorted(here.glob(pattern))
+        if found:
+            print(f"[auto_pick_file] Nessun {preferred_name}. Uso il primo {pattern}: {found[0]}")
+            return found[0]
+
+    # 3) dialog
     try:
         import tkinter as tk
         from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
+        root = tk.Tk(); root.withdraw()
         path = filedialog.askopenfilename(
-            title="Seleziona il file .txtrecipe",
-            filetypes=[("Recipe file", "*.txtrecipe"), ("Tutti i file", "*.*")]
+            title="Seleziona il file ricetta",
+            filetypes=[("Recipe file", "*.txtrecipe;*.txrtrecipe"), ("Tutti i file", "*.*")]
         )
+        root.destroy()
         if path:
+            print(f"[auto_pick_file] Scelto: {path}")
             return Path(path)
     except Exception:
         pass
-    sys.exit("ERRORE: nessun file .txtrecipe trovato o selezionato.")
 
-def plot_from_recipe(data: Dict[str, Any]):
-    # --- Lettura e validazioni (strict) ---
+    raise FileNotFoundError("Nessun file .txtrecipe/.txrtrecipe trovato o selezionato.")
+
+
+def plot_from_recipe(data: Dict[str, Any],
+                     lines: List[str],
+                     key_to_line: Dict[str, int],
+                     source_path: str):
+    
+    # lato del quadrato (dm), obbligatorio
     extent_dm = require_numeric(
         data,
-        [
-            "IO.GPS.Vis.Square_Widht_Scale_dm",
-            "IO.GPS.Vis.Square_Width_Scale_dm",
-            "IO.GPS.Vis.Square_Width_dm",
-            "IO.GPS.Vis.Square_Scale_dm",
-        ],
+        ["IO.GPS.Vis.Square_Width_Scale_dm"],
         "dimensione quadrato (dm)",
     )
+
     N = require_int(data, "IO.GPS.Cfg.Num_Grid_Rows_Cols", "numero righe/colonne griglia")
     step = require_numeric(data, ["IO.GPS.Cfg.Grid_Cell_Size_dm"], "passo griglia (dm)")
     if N <= 0 or step <= 0:
@@ -211,7 +236,7 @@ def plot_from_recipe(data: Dict[str, Any]):
     ax = plt.gca()
     ax.set_facecolor(AX_BG)
 
-    # --- 1) Hitbox trasparenti per TUTTE le celle (tooltip anche sulle bianche) ---
+    # --- 1) Hitbox trasparenti per TUTTE le celle ---
     rects_info: List[Dict[str, Any]] = []
     for ix in range(N):
         for iy in range(N):
@@ -223,13 +248,13 @@ def plot_from_recipe(data: Dict[str, Any]):
                 facecolor="none",
                 edgecolor="none",
                 linewidth=0.0,
-                zorder=9,  # sotto la griglia, che disegnamo alla fine
+                zorder=9,
             )
             ax.add_patch(rect)
-            props = cells.get((ix, iy), {})  # solo ciò che è nel file
+            props = cells.get((ix, iy), {})  # solo ciò che esiste nel file
             rects_info.append({"rect": rect, "ix": ix, "iy": iy, "props": props})
 
-    # --- 2) Celle Included=TRUE (riempimento verde usando SOLO i centri del file) ---
+    # --- 2) Celle Included=TRUE (riempimento verde con centri del file) ---
     edge_w = globals().get("INCLUDED_EDGEWIDTH", 0.0)
     for (ix, iy), props in cells.items():
         if props.get("Included") is True:
@@ -259,18 +284,18 @@ def plot_from_recipe(data: Dict[str, Any]):
         plt.annotate(str(i), (x0, y0), xytext=(4, 4), textcoords="offset points",
                      color=LABEL_COLOR, zorder=26)
 
-    # --- 4) Griglia per ultima, SOPRA tutto (copre eventuali micro-gap) ---
+    # --- 4) Griglia per ultima, sopra tutto ---
     for k in range(N + 1):
         x = k * step
         y = k * step
         plt.axvline(x=x, linewidth=GRID_LINEWIDTH, alpha=GRID_ALPHA, color=GRID_COLOR, zorder=100)
         plt.axhline(y=y, linewidth=GRID_LINEWIDTH, alpha=GRID_ALPHA, color=GRID_COLOR, zorder=100)
 
-    # --- Limiti esatti (niente padding) ---
+    # --- Limiti esatti ---
     plt.xlim(0, extent_dm)
     plt.ylim(0, extent_dm)
 
-    # --- Tooltip su hover con posizionamento a quadranti ---
+    # --- Tooltip a quadranti (anche su celle bianche) ---
     tooltip = ax.annotate(
         "",
         xy=(0, 0),
@@ -293,7 +318,7 @@ def plot_from_recipe(data: Dict[str, Any]):
         "Edges_Crossed",
         "Error",
     ]
-    TOOLTIP_OFFSET = globals().get("TOOLTIP_OFFSET", 12)  # puoi aggiungerlo in CONFIG
+    TOOLTIP_OFFSET = globals().get("TOOLTIP_OFFSET", 12)
 
     def build_text(info: Dict[str, Any]) -> str:
         p = info["props"]
@@ -303,36 +328,31 @@ def plot_from_recipe(data: Dict[str, Any]):
                 lines.append(f"{k}: {p[k]}")
         return "\n".join(lines)
 
+    def quad_offsets(x: float, y: float) -> tuple:
+        # Offset e allineamenti in base al quadrante rispetto al centro del quadro
+        cx_mid = extent_dm * 0.5
+        cy_mid = extent_dm * 0.5
+        o = TOOLTIP_OFFSET
+        if x < cx_mid and y < cy_mid:      # basso-sx -> tooltip alto-dx
+            return (+o, +o, "left",  "bottom")
+        if x < cx_mid and y >= cy_mid:     # alto-sx  -> tooltip basso-dx
+            return (+o, -o, "left",  "top")
+        if x >= cx_mid and y >= cy_mid:    # alto-dx  -> tooltip basso-sx
+            return (-o, -o, "right", "top")
+        # basso-dx -> tooltip alto-sx
+        return (-o, +o, "right", "bottom")
+
     def on_move(event):
         if not event.inaxes or event.xdata is None or event.ydata is None:
             if tooltip.get_visible():
                 tooltip.set_visible(False)
                 fig.canvas.draw_idle()
             return
-
-        # Centro del quadro per i quadranti
-        cx_mid = extent_dm * 0.5
-        cy_mid = extent_dm * 0.5
-
         for info in rects_info:
             contains, _ = info["rect"].contains(event)
             if contains:
                 x, y = event.xdata, event.ydata
-
-                # Determina quadrante e offset/allineamento
-                if x < cx_mid and y < cy_mid:
-                    # basso-sx -> tooltip in alto-dx
-                    dx, dy, ha, va = +TOOLTIP_OFFSET, +TOOLTIP_OFFSET, "left",  "bottom"
-                elif x < cx_mid and y >= cy_mid:
-                    # alto-sx -> tooltip in basso-dx
-                    dx, dy, ha, va = +TOOLTIP_OFFSET, -TOOLTIP_OFFSET, "left",  "top"
-                elif x >= cx_mid and y >= cy_mid:
-                    # alto-dx -> tooltip in basso-sx
-                    dx, dy, ha, va = -TOOLTIP_OFFSET, -TOOLTIP_OFFSET, "right", "top"
-                else:
-                    # basso-dx -> tooltip in alto-sx
-                    dx, dy, ha, va = -TOOLTIP_OFFSET, +TOOLTIP_OFFSET, "right", "bottom"
-
+                dx, dy, ha, va = quad_offsets(x, y)
                 tooltip.xy = (x, y)
                 tooltip.set_text(build_text(info))
                 tooltip.set_position((dx, dy))
@@ -341,12 +361,63 @@ def plot_from_recipe(data: Dict[str, Any]):
                 tooltip.set_visible(True)
                 fig.canvas.draw_idle()
                 return
-
         if tooltip.get_visible():
             tooltip.set_visible(False)
             fig.canvas.draw_idle()
 
     fig.canvas.mpl_connect("motion_notify_event", on_move)
+
+    # --- Click per editare Target_Depth_cm (solo se la chiave esiste nel file) ---
+    def on_click(event):
+        if not event.inaxes or event.xdata is None or event.ydata is None:
+            return
+        for info in rects_info:
+            contains, _ = info["rect"].contains(event)
+            if not contains:
+                continue
+            ix, iy = info["ix"], info["iy"]
+            key = f"IO.GPS.Sts.Grid_data[{ix}][{iy}].Target_Depth_cm"
+            line_idx = key_to_line.get(key)
+            if line_idx is None:
+                print(f"Questa cella non ha '{key}' nel file. Non modificabile in modalità strict.")
+                return
+            current = info["props"].get("Target_Depth_cm", data.get(key, ""))
+            # Dialog
+            try:
+                import tkinter as tk
+                from tkinter import simpledialog, messagebox
+                root = tk.Tk(); root.withdraw()
+                s = simpledialog.askstring(
+                    "Edit Target_Depth_cm",
+                    f"{key}\nValore attuale: {current}\nNuovo valore (numero):"
+                )
+                root.destroy()
+            except Exception:
+                s = input(f"Nuovo valore per {key} (numero): ")
+            if s is None:
+                return
+            try:
+                v = float(s)
+            except ValueError:
+                print("Valore non numerico, modifica annullata.")
+                return
+            # formatting: int se intero, altrimenti float
+            v_out = str(int(v)) if v.is_integer() else f"{v}"
+            # Aggiorna riga e dizionari
+            lines[line_idx] = f"{key}:={v_out}\n"
+            data[key] = int(v) if v.is_integer() else v
+            info["props"]["Target_Depth_cm"] = data[key]
+            # Salva copia
+            from pathlib import Path
+            p = Path(source_path)
+            out_path = str(p.with_name(p.stem + "_edited" + p.suffix))
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            print(f"Modificato {key} = {v_out}  ->  salvato in: {out_path}")
+            fig.canvas.draw_idle()
+            return
+
+    fig.canvas.mpl_connect("button_press_event", on_click)
 
     # --- Assi/label/layout ---
     ax.set_aspect("equal", adjustable="box")
@@ -359,9 +430,10 @@ def plot_from_recipe(data: Dict[str, Any]):
 def main():
     path = auto_pick_file()
     print(f"Carico: {path}")
-    data = parse_recipe(str(path))
-    plot_from_recipe(data)
+    data, lines, key_to_line = parse_recipe_indexed(str(path))
+    plot_from_recipe(data, lines, key_to_line, str(path))
     plt.show()
+
 
 if __name__ == "__main__":
     main()
