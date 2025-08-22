@@ -10,14 +10,17 @@ from config import (
     INCLUDED_FACE, INCLUDED_ALPHA, INCLUDED_EDGE, INCLUDED_EDGEWIDTH, Z_INCLUDED,
     PERIMETER_COLOR, PERIMETER_WIDTH, Z_PERIMETER,
     POINT_COLOR, POINT_SIZE, Z_POINTS, LABEL_COLOR,
-    TOOLTIP_BOX_FC, TOOLTIP_BOX_EC, TOOLTIP_FONTSIZE, TOOLTIP_OFFSET,
+    TOOLTIP_BOX_FC, TOOLTIP_BOX_EC, TOOLTIP_FONTSIZE, TOOLTIP_OFFSET, HIDE_MPL_TOOLBAR
 )
+
 from grid_model import (
     require_numeric, require_int, require_points,
     collect_grid_data, validate_included_centers,
 )
 
-
+if HIDE_MPL_TOOLBAR:
+    plt.rcParams["toolbar"] = "None"
+    
 def _build_tooltip_text(ix: int, iy: int, props: Dict[str, Any]) -> str:
     ordered = [
         "Included",
