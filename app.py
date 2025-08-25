@@ -7,9 +7,10 @@ from pathlib import Path
 import sys
 import matplotlib.pyplot as plt
 
+import config as CFG
 from util_paths import auto_pick_file
 from recipe_parser import parse_recipe_indexed
-from plot_view import view_from_file
+from plot_view import view_from_file, ensure_local_recipe_pulled
 from dbio import (
     init_db, import_recipe_to_db,
     reset_included, set_target_value,
@@ -23,6 +24,10 @@ def cli():
     # view
     p_view = sub.add_parser("view", help="Apri il viewer interattivo su un file ricetta")
     p_view.add_argument("path", nargs="?", help="Percorso al file (.txtrecipe o .txrtrecipe)")
+    p_view.add_argument("--ftp-pull", action="store_true",
+                        help="Forza pull da FTP (ignora config). Usato solo se 'path' è assente.")
+    p_view.add_argument("--no-ftp", action="store_true",
+                        help="Salta pull da FTP (ignora config). Usato solo se 'path' è assente.")
 
     # import
     p_imp = sub.add_parser("import", help="Importa un file ricetta in SQLite")
@@ -59,6 +64,34 @@ def parse_coords(s: str):
         pairs.append((int(x_str), int(y_str)))
     return pairs
 
+def _pick_view_path(path_arg, args):
+    """
+    Sceglie il file per il viewer:
+    - Se l'utente passa 'path', usiamo quello e NON facciamo FTP.
+    - Altrimenti, FTP: True/False determinato da config o da --ftp-pull/--no-ftp.
+    - Se il pull fallisce o il file non esiste: fallback su auto_pick_file().
+    """
+    if path_arg:
+        return Path(path_arg)
+
+    # decidi se fare FTP
+    want_ftp = CFG.FTP_PULL_ON_START
+    if getattr(args, "ftp_pull", False):
+        want_ftp = True
+    if getattr(args, "no_ftp", False):
+        want_ftp = False
+
+    if want_ftp:
+        local_path = ensure_local_recipe_pulled(silent=False, popup=True, parent_tk=None)
+        p = Path(local_path)
+        if p.exists():
+            return p
+        # altrimenti ricadiamo su auto_pick_file()
+        return auto_pick_file()
+
+    # niente FTP: scegli come prima
+    return auto_pick_file()
+
 def main():
     args = cli()
 
@@ -66,7 +99,7 @@ def main():
         # DEFAULT: se nessun subcomando, apri il viewer
         if args.cmd is None or args.cmd == "view":
             path_arg = getattr(args, "path", None)
-            path = Path(path_arg) if path_arg else auto_pick_file()
+            path = _pick_view_path(path_arg, args)
             print(f"[view] Carico: {path}")
             data, lines, key_to_line = parse_recipe_indexed(str(path))
             view_from_file(data, lines, key_to_line, str(path))
