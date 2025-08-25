@@ -1,0 +1,89 @@
+# -------------------------
+# OS / Editor cruft
+# -------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+*.swp
+*.swo
+*.orig
+*.bak
+*.tmp
+*.log
+.vscode/
+.idea/
+*.iml
+
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual envs / tooling
+.venv/
+venv/
+env/
+ENV/
+.tox/
+.nox/
+.pyenv/
+.python-version
+
+# Packaging / distributions
+build/
+dist/
+**/build*/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+wheels/
+# PyInstaller / cx_Freeze / Nuitka / py2exe
+*.spec
+*.manifest
+*.dll
+*.pyd
+*.dylib
+*.so
+*.exe
+
+# Type checking / test / coverage
+.mypy_cache/
+.pyrightcache/
+.pyre/
+.pytype/
+.pytest_cache/
+.coverage*
+coverage.xml
+htmlcov/
+
+# Jupyter (se mai ne usi)
+.ipynb_checkpoints/
+
+# -------------------------
+# Project-specific artifacts
+# -------------------------
+
+# File ricetta: ignora quelli operativi locali
+# (se vuoi versionare esempi, mettili in "examples/" e verranno inclusi)
+*.txtrecipe
+*.txrtrecipe
+!examples/**/*.txtrecipe
+!examples/**/*.txrtrecipe
+
+# File ricetta generato/modificato dall'app
+*_edited.txtrecipe
+
+# DB/Cache locali
+*.sqlite
+*.db
+*.db-journal
+workspace.sqlite
+
+# Config locali opzionali (se mai li usi)
+config.local.py
+.env
+.env.*
