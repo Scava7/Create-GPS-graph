@@ -3,7 +3,7 @@
 
 # --- Overlay UI (Tk) ---
 # finestra con i check dei layer (usa Tk/ttk)
-LAYER_UI_GEOMETRY = "280x180+60+60"  # "LxH+X+Y"; metti None/"" per auto vicino alla figura
+LAYER_UI_GEOMETRY = "280x280+60+60"  # "LxH+X+Y"; metti None/"" per auto vicino alla figura
 LAYER_UI_FONT_SIZE = 13              # grandezza testo check
 LAYER_UI_ALWAYSONTOP = True          # finestra sempre in primo piano
 
