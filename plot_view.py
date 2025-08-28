@@ -355,7 +355,7 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
             ok, _ = info["rect"].contains(event)
             if not ok: continue
             ix, iy = info["ix"], info["iy"]
-            key = f"IO.GPS.Sts.Grid_data[{ix}][{iy}].Target_Depth_cm"
+            key = f"GVL.GPS_Grid_data[{ix}][{iy}].Target_Depth_cm"
             line_idx = key_to_line.get(key)
             if line_idx is None:
                 print(f"Cella [{ix}][{iy}] senza '{key}' nel file: non modificabile.")

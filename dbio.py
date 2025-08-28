@@ -45,7 +45,7 @@ def import_recipe_to_db(db_path: str, data: Dict[str, Any], lines: List[str], ke
     # grid
     grid: Dict[Tuple[int, int], Dict[str, Any]] = {}
     import re
-    grid_re = re.compile(r"^IO\.GPS\.Sts\.Grid_data\[(\d+)\]\[(\d+)\]\.([A-Za-z_]\w*)$")
+    grid_re = re.compile(r"^GVL\.GPS_Grid_data\[(\d+)\]\[(\d+)\]\.([A-Za-z_]\w*)$")
     for k, v in data.items():
         m = grid_re.match(k)
         if not m:
@@ -115,7 +115,7 @@ def export_recipe_from_db(db_path: str, out_path: str):
 
     # Included
     for x, y, incl in cur.execute("SELECT x,y,included FROM grid_cells WHERE included IS NOT NULL"):
-        key = f"IO.GPS.Sts.Grid_data[{x}][{y}].Included"
+        key = f"GVL.GPS_Grid_data[{x}][{y}].Included"
         row = cur.execute("SELECT line_idx FROM keys_map WHERE key=?", (key,)).fetchone()
         if not row:
             continue
@@ -124,7 +124,7 @@ def export_recipe_from_db(db_path: str, out_path: str):
 
     # Target_Depth_cm
     for x, y, val in cur.execute("SELECT x,y,target_depth_cm FROM grid_cells WHERE target_depth_cm IS NOT NULL"):
-        key = f"IO.GPS.Sts.Grid_data[{x}][{y}].Target_Depth_cm"
+        key = f"GVL.GPS_Grid_data[{x}][{y}].Target_Depth_cm"
         row = cur.execute("SELECT line_idx FROM keys_map WHERE key=?", (key,)).fetchone()
         if not row:
             continue

@@ -64,6 +64,7 @@ FTP_REMOTE_PATH = "/home/cds-apps/Backup/GPS_Grid.txtrecipe"
 
 # nome locale con cui salvare (nella cartella dello script)
 LOCAL_RECIPE_FILENAME = "GPS_Grid.txtrecipe"
+PREFIX = "GVL.GPS_Grid_data"
 
 # prova a scaricare automaticamente prima di leggere il file
 FTP_PULL_ON_START = True
