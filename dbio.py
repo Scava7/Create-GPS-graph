@@ -37,8 +37,9 @@ def import_recipe_to_db(db_path: str, data: Dict[str, Any], lines: List[str], ke
     cur = db.cursor()
     # cfg
     for k, v in data.items():
-        if k.startswith("IO.GPS.Cfg.") or k.startswith("IO.GPS.Vis."):
+        if k.startswith("IO.GPS.Cfg.") or k.startswith("IO.GPS.Vis.") or k.startswith("IO.GPS.Sts."):
             cur.execute("INSERT OR REPLACE INTO cfg(key,value) VALUES(?,?)", (k, str(v)))
+
     # lines, keys_map
     cur.executemany("INSERT OR REPLACE INTO lines(idx,content) VALUES(?,?)", [(i, s) for i, s in enumerate(lines)])
     cur.executemany("INSERT OR REPLACE INTO keys_map(key,line_idx) VALUES(?,?)", key_to_line.items())

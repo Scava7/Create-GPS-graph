@@ -61,6 +61,8 @@ FTP_PASSIVE = True
 
 # percorso remoto del file da scaricare (percorso UNIX lato FTP)
 FTP_REMOTE_PATH = "/home/cds-apps/Backup/GPS_Grid.txtrecipe"
+FTP_REMOTE_PATH_IO = "/home/cds-apps/Backup/IO.txtrecipe"  # percorso remoto sul PLC/FTP
+LOCAL_IO_RECIPE_FILENAME = "IO.txtrecipe"                  # nome salvato localmente
 
 # nome locale con cui salvare (nella cartella dello script)
 LOCAL_RECIPE_FILENAME = "GPS_Grid.txtrecipe"

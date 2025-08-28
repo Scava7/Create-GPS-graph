@@ -2,7 +2,7 @@
 import re, sys
 from typing import Any, Dict, List, Tuple
 
-_GRID_RE = re.compile(r"^IO\.GPS\.Sts\.Grid_data\[(\d+)\]\[(\d+)\]\.([A-Za-z_]\w*)$")
+_GRID_RE = re.compile(r"^GVL\.GPS_Grid_data\[(\d+)\]\[(\d+)\]\.([A-Za-z_]\w*)$")
 
 
 def require_numeric(data: Dict[str, Any], key_variants: List[str], name_for_error: str) -> float:
@@ -26,8 +26,8 @@ def require_int(data: Dict[str, Any], key: str, name_for_error: str) -> int:
 def require_points(data: Dict[str, Any]) -> Tuple[List[float], List[float]]:
     easts, norths, missing = [], [], []
     for i in range(1, 5):
-        ke = f"IO.GPS.Cfg.Relative_UTM_East[{i}]"
-        kn = f"IO.GPS.Cfg.Relative_UTM_North[{i}]"
+        ke = f"IO.GPS.Cfg.stRef_Points.UTM_East[{i}]"
+        kn = f"IO.GPS.Cfg.stRef_Points.UTM_North[{i}]"
         ve, vn = data.get(ke), data.get(kn)
         if not isinstance(ve, (int, float)) or not isinstance(vn, (int, float)):
             missing.append(f"{ke} / {kn}")

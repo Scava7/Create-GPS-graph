@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Viewer interattivo strict: tooltip a quadranti, overlay centrati, edit Target_Depth_cm, FTP pull + UI Tk esterna."""
+"""Viewer interattivo strict: tooltip a quadranti, overlay centrati,
+edit Target_Depth_cm, FTP pull (GRID+IO) + UI Tk esterna.
+"""
 from typing import Any, Dict, List, Tuple
 import os, time
 from pathlib import Path
@@ -21,16 +23,16 @@ from grid_model import (
     require_numeric, require_int, require_points,
     collect_grid_data, validate_included_centers,
 )
-from tk_layer_ui import open_layer_window  # <- nuova UI separata
+from tk_layer_ui import open_layer_window  # UI separata
 
 
-# --- Flag overlay (fallback se non definiti in config) ---
+# -------------------------- Flag overlay (fallback) ---------------------------
 SHOW_PATH_INDEX    = getattr(CFG, "SHOW_PATH_INDEX", True)
 SHOW_LAST_DEPTH    = getattr(CFG, "SHOW_LAST_DEPTH", False)
 SHOW_TARGET_DEPTH  = getattr(CFG, "SHOW_TARGET_DEPTH", False)
 PATH_TEXT_FONTSIZE = getattr(CFG, "PATH_TEXT_FONTSIZE", max(TOOLTIP_FONTSIZE, 10))
 
-# --- Toolbar Matplotlib ---
+# ------------------------------ Toolbar MPL ----------------------------------
 if HIDE_MPL_TOOLBAR:
     plt.rcParams["toolbar"] = "None"
 
@@ -92,7 +94,7 @@ def _ask_number_near_figure(fig, title: str, message: str, default: str | None =
     return None
 
 
-# ================================== FTP PULL =================================
+# ================================== FTP CORE =================================
 def _ts() -> str:
     fmt = getattr(CFG, "BACKUP_STAMP_FMT", "%Y%m%d-%H%M%S")
     return time.strftime(fmt)
@@ -100,8 +102,12 @@ def _ts() -> str:
 def _script_dir() -> Path:
     return Path(__file__).resolve().parent
 
-def _local_recipe_path() -> Path:
+def _local_grid_recipe_path() -> Path:
     name = getattr(CFG, "LOCAL_RECIPE_FILENAME", "GPS_Grid.txtrecipe")
+    return _script_dir() / name
+
+def _local_io_recipe_path() -> Path:
+    name = getattr(CFG, "LOCAL_IO_RECIPE_FILENAME", "IO.txtrecipe")
     return _script_dir() / name
 
 def _ftp_connect() -> FTP:
@@ -132,17 +138,19 @@ def _popup(title: str, message: str, kind: str = "info", parent=None):
     except Exception:
         print(f"[{title}] {message}")
 
+
+# =============================== FTP: GRID ===================================
 def ftp_pull_recipe_to_script_dir(verbose: bool = True) -> Path | None:
-    """Scarica su .tmp, backup locale se presente, rename atomico. Ritorna Path se ok."""
+    """Scarica il file GRID (GPS_Grid.txtrecipe) via FTP nel folder dello script."""
     if not getattr(CFG, "FTP_ENABLED", True):
-        if verbose: print("[FTP] Disabilitato da config.")
+        if verbose: print("[FTP GRID] Disabilitato da config.")
         return None
     remote_path = getattr(CFG, "FTP_REMOTE_PATH", "")
     if not remote_path:
-        if verbose: print("[FTP pull] FTP_REMOTE_PATH non impostato.")
+        if verbose: print("[FTP GRID pull] FTP_REMOTE_PATH non impostato.")
         return None
 
-    dst = _local_recipe_path()
+    dst = _local_grid_recipe_path()
     tmp = dst.with_suffix(dst.suffix + ".tmp")
     dst.parent.mkdir(parents=True, exist_ok=True)
 
@@ -158,21 +166,21 @@ def ftp_pull_recipe_to_script_dir(verbose: bool = True) -> Path | None:
         if dst.exists():
             bak = dst.with_name(f"{dst.stem}_{_ts()}{dst.suffix}")
             dst.rename(bak)
-            if verbose: print(f"[FTP pull] Backup locale: {bak.name}")
+            if verbose: print(f"[FTP GRID pull] Backup locale: {bak.name}")
         tmp.rename(dst)
-        if verbose: print(f"[FTP pull] Scaricato → {dst}")
+        if verbose: print(f"[FTP GRID pull] Scaricato → {dst}")
         return dst
     except Exception as e:
         try:
             if tmp.exists(): tmp.unlink()
         except Exception:
             pass
-        if verbose: print(f"[FTP pull] Errore: {e}. Uso il file locale (se presente): {dst}")
+        if verbose: print(f"[FTP GRID pull] Errore: {e}. Uso il file locale (se presente): {dst}")
         return None
 
 def ensure_local_recipe_pulled(silent: bool = False, popup: bool = True, parent_tk=None) -> Path:
-    """Prova il pull secondo config; mostra popup; ritorna SEMPRE il path locale atteso."""
-    dst = _local_recipe_path()
+    """Assicura che il file GRID locale esista; se abilitato, fa anche il pull FTP."""
+    dst = _local_grid_recipe_path()
     do_pull = getattr(CFG, "FTP_PULL_ON_START", True)
     do_popups = popup and getattr(CFG, "FTP_POPUPS", True)
     title = getattr(CFG, "FTP_POPUP_TITLE", "FTP")
@@ -189,18 +197,93 @@ def ensure_local_recipe_pulled(silent: bool = False, popup: bool = True, parent_
     if do_popups:
         if ok:
             if getattr(CFG, "FTP_POPUPS_ON_SUCCESS", True):
-                msg = f"File scaricato da FTP in:\n{dst}"
-                if had_old:
-                    msg += "\n\nIl precedente file locale è stato salvato come backup."
+                msg = f"File GRID scaricato da FTP in:\n{dst}"
+                if had_old: msg += "\n\nIl precedente file locale è stato salvato come backup."
                 _popup(title, msg, "info", parent=parent_tk)
         else:
             if not err and not do_pull:
-                msg = "FTP non eseguito (disattivato). Si userà il file locale:\n" + str(dst)
+                msg = "FTP GRID non eseguito (disattivato). Si userà il file locale:\n" + str(dst)
             elif not err:
-                msg = "Connessione FTP fallita o file remoto non disponibile.\n" \
+                msg = "Connessione FTP GRID fallita o file remoto non disponibile.\n" \
                       "Si userà il file locale (se presente):\n" + str(dst)
             else:
-                msg = f"Errore FTP: {err}\nSi userà il file locale (se presente):\n{dst}"
+                msg = f"Errore FTP GRID: {err}\nSi userà il file locale (se presente):\n{dst}"
+            _popup(title, msg, "warning", parent=parent_tk)
+
+    return dst
+
+# Alias esplicito per chiarezza esterna
+def ensure_local_grid_recipe_pulled(silent: bool = False, popup: bool = True, parent_tk=None) -> Path:
+    return ensure_local_recipe_pulled(silent=silent, popup=popup, parent_tk=parent_tk)
+
+
+# ================================ FTP: IO =====================================
+def ftp_pull_io_recipe_to_script_dir(verbose: bool = True) -> Path | None:
+    if not getattr(CFG, "FTP_ENABLED", True):
+        if verbose: print("[FTP IO] Disabilitato da config.")
+        return None
+    remote_path = getattr(CFG, "FTP_REMOTE_PATH_IO", "")
+    if not remote_path:
+        if verbose: print("[FTP IO pull] FTP_REMOTE_PATH_IO non impostato.")
+        return None
+
+    dst = _local_io_recipe_path()
+    tmp = dst.with_suffix(dst.suffix + ".tmp")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        ftp = _ftp_connect()
+        rdir, rname = os.path.split(remote_path)
+        if rdir: ftp.cwd(rdir)
+        with open(tmp, "wb") as f:
+            ftp.retrbinary("RETR " + rname, f.write)
+        try: ftp.quit()
+        except Exception: pass
+
+        if dst.exists():
+            bak = dst.with_name(f"{dst.stem}_{_ts()}{dst.suffix}")
+            dst.rename(bak)
+            if verbose: print(f"[FTP IO pull] Backup locale: {bak.name}")
+        tmp.rename(dst)
+        if verbose: print(f"[FTP IO pull] Scaricato → {dst}")
+        return dst
+    except Exception as e:
+        try:
+            if tmp.exists(): tmp.unlink()
+        except Exception:
+            pass
+        if verbose: print(f"[FTP IO pull] Errore: {e}. Uso il file locale (se presente): {dst}")
+        return None
+
+def ensure_local_io_recipe_pulled(silent: bool = False, popup: bool = True, parent_tk=None) -> Path:
+    dst = _local_io_recipe_path()
+    do_pull = getattr(CFG, "FTP_PULL_ON_START", True)
+    do_popups = popup and getattr(CFG, "FTP_POPUPS", True)
+    title = getattr(CFG, "FTP_POPUP_TITLE", "FTP")
+
+    had_old = dst.exists()
+    ok = False
+    err = None
+    try:
+        if do_pull:
+            ok = ftp_pull_io_recipe_to_script_dir(verbose=not silent) is not None
+    except Exception as e:
+        err = str(e)
+
+    if do_popups:
+        if ok:
+            if getattr(CFG, "FTP_POPUPS_ON_SUCCESS", True):
+                msg = f"File IO scaricato da FTP in:\n{dst}"
+                if had_old: msg += "\n\nIl precedente file locale è stato salvato come backup."
+                _popup(title, msg, "info", parent=parent_tk)
+        else:
+            if not err and not do_pull:
+                msg = "FTP IO non eseguito (disattivato). Si userà il file locale:\n" + str(dst)
+            elif not err:
+                msg = "Connessione FTP IO fallita o file remoto non disponibile.\n" \
+                      "Si userà il file locale (se presente):\n" + str(dst)
+            else:
+                msg = f"Errore FTP IO: {err}\nSi userà il file locale (se presente):\n{dst}"
             _popup(title, msg, "warning", parent=parent_tk)
 
     return dst
@@ -209,9 +292,9 @@ def ensure_local_recipe_pulled(silent: bool = False, popup: bool = True, parent_
 # ================================== VIEWER ====================================
 def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str, int], source_path: str):
     # parametri base
-    extent_dm = require_numeric(data, ["IO.GPS.Vis.Square_Width_Scale_dm"], "dimensione quadrato (dm)")
+    extent_dm = require_numeric(data, ["IO.GPS.Cfg.Square_Width_Scale_dm"], "dimensione quadrato (dm)")
     N = require_int(data, "IO.GPS.Cfg.Num_Grid_Rows_Cols", "numero righe/colonne griglia")
-    step = require_numeric(data, ["IO.GPS.Cfg.Grid_Cell_Size_dm", "IO.GPS. Cfg.Grid_Cell_Size_dm"], "passo griglia (dm)")
+    step = require_numeric(data, ["IO.GPS.Sts.Grid_Cell_Size_dm", "IO.GPS. Cfg.Grid_Cell_Size_dm"], "passo griglia (dm)")
     if N <= 0 or step <= 0:
         raise SystemExit("ERRORE: Num_Grid_Rows_Cols e Grid_Cell_Size_dm devono essere > 0.")
     easts, norths = require_points(data)
@@ -283,7 +366,6 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
                 out.append(s)
         return "\n".join(out)
 
-
     overlay_entries: List[Dict[str, Any]] = []
     for (ix, iy), props in cells.items():
         if not any(k in props for k in ("Path_Index", "Last_Depth_Read_cm", "Target_Depth_cm")):
@@ -347,7 +429,7 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
             tooltip.set_visible(False); fig.canvas.draw_idle()
     fig.canvas.mpl_connect("motion_notify_event", on_move)
 
-    # click: edit Target_Depth_cm
+    # click: edit Target_Depth_cm (solo file GRIGLIA)
     def on_click(event):
         if not event.inaxes or event.xdata is None or event.ydata is None:
             return
@@ -377,9 +459,9 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
             fig.canvas.draw_idle(); return
     fig.canvas.mpl_connect("button_press_event", on_click)
 
-    # ---------- UI esterna (Tk) + scorciatoie ----------
-    # refresh degli overlay
+    # -------------------------- UI esterna (Tk) + hotkeys ----------------------
     current_state = {"p": SHOW_PATH_INDEX, "l": SHOW_LAST_DEPTH, "t": SHOW_TARGET_DEPTH}
+
     def _refresh_overlays(show_path: bool, show_last: bool, show_target: bool):
         current_state["p"] = show_path; current_state["l"] = show_last; current_state["t"] = show_target
         for entry in overlay_entries:
@@ -391,35 +473,36 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
                 t.set_visible(False)
         fig.canvas.draw_idle()
 
-    # reload callback: FTP pull + re-parse + riapri viewer
+    # reload callback: FTP pull GRID+IO, merge e riapri viewer
     def _do_reload():
-        # prova ad ancorare eventuali pop-up al parent Tk della figura
+        # parent Tk della figura (se c'è)
         try:
             parent_tk = fig.canvas.get_tk_widget().winfo_toplevel()  # type: ignore[attr-defined]
         except Exception:
             parent_tk = None
 
-        # 1) chiudi la finestra Layer corrente (così i toggle non restano legati alla vecchia figura)
-        try:
-            win.destroy()  # 'win' è definita più sotto quando creiamo la UI
-        except Exception:
-            pass
+        # chiudi la finestra Layer e la figura correnti
+        try: win.destroy()
+        except Exception: pass
+        try: plt.close(fig)
+        except Exception: pass
 
-        # 2) chiudi la figura corrente
+        # Pull di ENTRAMBI i file
         try:
-            plt.close(fig)
-        except Exception:
-            pass
-
-        # 3) FTP pull e parse del file locale (usa fallback locale se l'FTP fallisce)
-        try:
-            local_path = ensure_local_recipe_pulled(silent=False, popup=True, parent_tk=parent_tk)
+            local_grid_path = ensure_local_grid_recipe_pulled(silent=False, popup=True, parent_tk=parent_tk)
+            local_io_path   = ensure_local_io_recipe_pulled(silent=False, popup=True, parent_tk=parent_tk)
         except Exception as e:
             _popup("Reload – FTP", f"Errore durante il pull FTP:\n{e}", "error", parent=parent_tk)
             return
+
+        # Parse + merge: IO solo da IO.txtrecipe, Griglia solo da GPS_Grid.txtrecipe
         try:
-            from recipe_parser import parse_recipe_indexed
-            data2, lines2, key_to_line2 = parse_recipe_indexed(str(local_path))
+            from recipe import load_io_recipe, load_grid_recipe
+            io_only = load_io_recipe(str(local_io_path))
+            grid_only, lines2, key_to_line2 = load_grid_recipe(str(local_grid_path))
+            merged = {}
+            merged.update(io_only)
+            merged.update(grid_only)
         except SystemExit as e:
             _popup("Reload – dati non validi", str(e), "error", parent=parent_tk)
             return
@@ -427,16 +510,14 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
             _popup("Reload – eccezione", f"{e}", "error", parent=parent_tk)
             return
 
-        # 4) riapri il viewer rigenerato
-        view_from_file(data2, lines2, key_to_line2, str(local_path))
+        # riapri il viewer (passiamo righe/mappa del SOLO file GRIGLIA)
+        view_from_file(merged, lines2, key_to_line2, str(local_grid_path))
 
-        # 5) forza la visualizzazione della nuova finestra
         try:
             plt.show(block=False)
-            plt.pause(0.001)  # spinge l'event loop
+            plt.pause(0.001)
         except Exception:
             pass
-
 
     # tastiera P/L/T
     def on_key(event):
@@ -447,7 +528,7 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
         _refresh_overlays(current_state["p"], current_state["l"], current_state["t"])
     fig.canvas.mpl_connect("key_press_event", on_key)
 
-    # tenta di aprire la finestra Tk (se backend Tk disponibile)
+    # prova ad aprire la finestra Tk (se backend Tk disponibile)
     try:
         parent = fig.canvas.get_tk_widget().winfo_toplevel()  # type: ignore[attr-defined]
         win = open_layer_window(
@@ -461,5 +542,5 @@ def view_from_file(data: Dict[str, Any], lines: List[str], key_to_line: Dict[str
             except Exception: pass
         fig.canvas.mpl_connect("close_event", _on_close_fig)
     except Exception:
-        # fallback: applica stato iniziale e usa solo scorciatoie da tastiera
+        # fallback: applica stato iniziale e usa solo scorciatoie tastiera
         _refresh_overlays(current_state["p"], current_state["l"], current_state["t"])

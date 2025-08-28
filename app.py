@@ -10,12 +10,19 @@ import matplotlib.pyplot as plt
 import config as CFG
 from util_paths import auto_pick_file
 from recipe_parser import parse_recipe_indexed
-from plot_view import view_from_file, ensure_local_recipe_pulled
+from recipe import load_io_recipe, load_grid_recipe
+from plot_view import (
+    view_from_file,
+    ensure_local_grid_recipe_pulled,
+    ensure_local_io_recipe_pulled,
+)
+
 from dbio import (
     init_db, import_recipe_to_db,
     reset_included, set_target_value,
     export_recipe_from_db,
 )
+
 
 def cli():
     ap = argparse.ArgumentParser(prog="gps_grid")
@@ -23,7 +30,7 @@ def cli():
 
     # view
     p_view = sub.add_parser("view", help="Apri il viewer interattivo su un file ricetta")
-    p_view.add_argument("path", nargs="?", help="Percorso al file (.txtrecipe o .txrtrecipe)")
+    p_view.add_argument("path", nargs="?", help="Percorso al file GRIGLIA (.txtrecipe/.txrtrecipe)")
     p_view.add_argument("--ftp-pull", action="store_true",
                         help="Forza pull da FTP (ignora config). Usato solo se 'path' è assente.")
     p_view.add_argument("--no-ftp", action="store_true",
@@ -31,8 +38,9 @@ def cli():
 
     # import
     p_imp = sub.add_parser("import", help="Importa un file ricetta in SQLite")
-    p_imp.add_argument("path", help="File ricetta (.txtrecipe / .txrtrecipe)")
+    p_imp.add_argument("path", help="File ricetta GRIGLIA (.txtrecipe / .txrtrecipe)")
     p_imp.add_argument("--db", default="workspace.sqlite", help="Percorso DB (default: workspace.sqlite)")
+    p_imp.add_argument("--io", help="(Facoltativo) File IO.txtrecipe da unire all'import")
 
     # reset-included
     p_reset = sub.add_parser("reset-included", help="Imposta Included=FALSE su un set di celle già presenti nel file")
@@ -54,6 +62,7 @@ def cli():
 
     return ap.parse_args()
 
+
 def parse_coords(s: str):
     pairs = []
     for chunk in s.split(";"):
@@ -64,33 +73,52 @@ def parse_coords(s: str):
         pairs.append((int(x_str), int(y_str)))
     return pairs
 
-def _pick_view_path(path_arg, args):
-    """
-    Sceglie il file per il viewer:
-    - Se l'utente passa 'path', usiamo quello e NON facciamo FTP.
-    - Altrimenti, FTP: True/False determinato da config o da --ftp-pull/--no-ftp.
-    - Se il pull fallisce o il file non esiste: fallback su auto_pick_file().
-    """
-    if path_arg:
-        return Path(path_arg)
 
-    # decidi se fare FTP
-    want_ftp = CFG.FTP_PULL_ON_START
+def _pick_view_paths(path_arg, args):
+    """
+    Ritorna (io_path, grid_path).
+
+    - Se 'path_arg' è fornito, è il file GRIGLIA.
+    - Altrimenti, decide se fare FTP in base a config/flag per scaricare
+      sia la GRIGLIA che l'IO. In caso di problemi, fa fallback ai file locali.
+    """
+    # Decidi la policy FTP
+    want_ftp = getattr(CFG, "FTP_PULL_ON_START", True)
     if getattr(args, "ftp_pull", False):
         want_ftp = True
     if getattr(args, "no_ftp", False):
         want_ftp = False
 
-    if want_ftp:
-        local_path = ensure_local_recipe_pulled(silent=False, popup=True, parent_tk=None)
-        p = Path(local_path)
-        if p.exists():
-            return p
-        # altrimenti ricadiamo su auto_pick_file()
-        return auto_pick_file()
+    # 1) GRID path
+    if path_arg:  # passato a mano: è il file GRIGLIA
+        grid_path = Path(path_arg)
+    else:
+        if want_ftp:
+            try:
+                grid_path = Path(ensure_local_grid_recipe_pulled(silent=False, popup=True, parent_tk=None))
+            except Exception:
+                grid_path = auto_pick_file("GPS_Grid.txtrecipe")
+        else:
+            grid_path = auto_pick_file("GPS_Grid.txtrecipe")
 
-    # niente FTP: scegli come prima
-    return auto_pick_file()
+    # 2) IO path
+    io_filename = getattr(CFG, "LOCAL_IO_RECIPE_FILENAME", "IO.txtrecipe")
+    if want_ftp:
+        try:
+            io_path = Path(ensure_local_io_recipe_pulled(silent=False, popup=True, parent_tk=None))
+        except Exception:
+            io_path = auto_pick_file(io_filename)
+    else:
+        io_path = auto_pick_file(io_filename)
+
+    return io_path, grid_path
+
+
+# SHIM di compatibilità per eventuali chiamate legacy che si aspettano UNA sola path (la griglia)
+def _pick_view_path(path_arg, args):
+    _, grid_path = _pick_view_paths(path_arg, args)
+    return grid_path
+
 
 def main():
     args = cli()
@@ -99,18 +127,39 @@ def main():
         # DEFAULT: se nessun subcomando, apri il viewer
         if args.cmd is None or args.cmd == "view":
             path_arg = getattr(args, "path", None)
-            path = _pick_view_path(path_arg, args)
-            print(f"[view] Carico: {path}")
-            data, lines, key_to_line = parse_recipe_indexed(str(path))
-            view_from_file(data, lines, key_to_line, str(path))
+
+            # Scegli i due file
+            io_path, grid_path = _pick_view_paths(path_arg, args)
+            print(f"[view] IO:   {io_path}")
+            print(f"[view] GRID: {grid_path}")
+
+            # Carica separatamente e unisci
+            io_only = load_io_recipe(str(io_path))  # solo IO.GPS.Cfg/Vis/Sts.*
+            grid_only, lines, key_to_line = load_grid_recipe(str(grid_path))  # solo GVL.GPS_Grid_data[..]
+
+            merged = {}
+            merged.update(io_only)
+            merged.update(grid_only)
+
+            # Apri il viewer passando RIGHE/MAPPA del SOLO file GRIGLIA (edit sicuri)
+            view_from_file(merged, lines, key_to_line, str(grid_path))
             plt.show()
             return
 
         if args.cmd == "import":
             print(f"[import] Inizializzo DB: {args.db}")
             init_db(args.db)
-            print(f"[import] Import da: {args.path}")
+
+            # Importa GRIGLIA
+            print(f"[import] Import GRID da: {args.path}")
             data, lines, key_to_line = parse_recipe_indexed(args.path)
+
+            # (Facoltativo) unisci IO se fornito
+            if args.io:
+                print(f"[import] Unisco IO da: {args.io}")
+                io_only = load_io_recipe(args.io)
+                data.update(io_only)
+
             import_recipe_to_db(args.db, data, lines, key_to_line)
             print(f"[import] Completato su {args.db}")
             return
@@ -150,6 +199,7 @@ def main():
     except Exception as e:
         print(f"[ERRORE] {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
